@@ -212,3 +212,35 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- BİTTİ. Artık sistem tamamen hazır!
+
+-- ==========================================================
+-- EKSİK PROFİLLERİ DOLDURMA VE OTOMATİK PROFİL OLUŞTURMA (TETİKLEYİCİ)
+-- ==========================================================
+
+-- 1. Var olan eski kullanıcıların (eğer profiles tablosunda yoksalar) profillerini oluşturur
+INSERT INTO public.profiles (id, username, role)
+SELECT 
+  id, 
+  COALESCE(raw_user_metadata->>'username', 'Eski_Kullanici'), 
+  'admin' -- Eski hesapların hepsi admin olsun
+FROM auth.users
+WHERE id NOT IN (SELECT id FROM public.profiles);
+
+-- 2. Yeni kayıt olan her kullanıcı için otomatik profil oluşturucu (Trigger)
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, username, role)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_metadata->>'username', 'user_' || substr(NEW.id::text, 1, 6)),
+    'user'
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
