@@ -221,7 +221,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 INSERT INTO public.profiles (id, username, role)
 SELECT 
   id, 
-  COALESCE(raw_user_metadata->>'username', 'Eski_Kullanici'), 
+  COALESCE(raw_user_meta_data->>'username', 'Eski_Kullanici'), 
   'admin' -- Eski hesapların hepsi admin olsun
 FROM auth.users
 WHERE id NOT IN (SELECT id FROM public.profiles);
@@ -233,7 +233,7 @@ BEGIN
   INSERT INTO public.profiles (id, username, role)
   VALUES (
     NEW.id,
-    COALESCE(NEW.raw_user_metadata->>'username', 'user_' || substr(NEW.id::text, 1, 6)),
+    COALESCE(NEW.raw_user_meta_data->>'username', 'user_' || substr(NEW.id::text, 1, 6)),
     'user'
   );
   RETURN NEW;
