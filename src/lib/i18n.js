@@ -72,8 +72,8 @@ const resources = {
       minutesOf: '/ 1440 dk',
 
       // Buttons
-      pee: '💧 Çiş',
-      poop: '💩 Kaka',
+      pee: '💧 İşedim',
+      poop: '💩 Sıçtım',
       logAction: 'Kaydet:',
 
       // Heatmap
@@ -81,8 +81,8 @@ const resources = {
       hour: 'Saat',
       minute: 'Dakika',
       noData: 'Boş',
-      peeLabel: 'Çiş',
-      poopLabel: 'Kaka',
+      peeLabel: 'İşedi',
+      poopLabel: 'Sıçtı',
       bothLabel: 'İkisi de',
 
       // Legend
@@ -94,8 +94,8 @@ const resources = {
       intense: 'Yoğun',
 
       // Toast
-      peeRecorded: '💧 {{time}} saatinde çiş kaydedildi!',
-      poopRecorded: '💩 {{time}} saatinde kaka kaydedildi!',
+      peeRecorded: '💧 {{time}} saatinde işediğin kaydedildi!',
+      poopRecorded: '💩 {{time}} saatinde sıçtığın kaydedildi!',
       error: 'Bir şeyler ters gitti. Tekrar deneyin!',
 
       // Setup
