@@ -1,49 +1,34 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+
+const PAGE = 1000 // Supabase caps responses at 1000 rows; the matrix has up to 1440
+
+const toEntry = (row) => [row.id, { pee_count: row.pee_count, poop_count: row.poop_count }]
 
 /**
- * Custom hook for managing the minutes matrix data with a dynamic Supabase client.
- * Fetches all 1440 minutes on mount and subscribes to realtime changes.
+ * Shared team matrix: every user's minutes summed per 'HH:mm' (team_matrix view).
+ * Each user still writes only their own rows, so concurrent clicks never clobber each other.
  */
-// Timestamped log for the profile page's daily/weekly stats; failure must not block the matrix update
-function logActivity(client, type) {
-  client.from('activity_log').insert({ type }).then(({ error }) => {
-    if (error) console.error('Activity log failed:', error)
-  })
-}
-
 export function useMinutesMatrixWithClient(supabaseClient, session) {
   // Store matrix as a Map for O(1) lookups: key = "HH:mm", value = { pee_count, poop_count }
   const [matrix, setMatrix] = useState(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [lastUpdate, setLastUpdate] = useState(null)
-  const channelRef = useRef(null)
 
-  // Fetch initial data
   const fetchMatrix = useCallback(async () => {
-    if (!supabaseClient || !session) return
-
     try {
       setIsLoading(true)
       setError(null)
-
-      const { data, error: fetchError } = await supabaseClient
-        .from('minutes_matrix')
-        .select('id, pee_count, poop_count')
-        // if user_id is in schema, RLS will filter, but we explicitly filter just in case
-        .eq('user_id', session.user.id)
-        .order('id')
-
-      if (fetchError) throw fetchError
-
       const map = new Map()
-      data?.forEach((row) => {
-        map.set(row.id, {
-          pee_count: row.pee_count,
-          poop_count: row.poop_count,
-        })
-      })
-
+      for (let from = 0; ; from += PAGE) {
+        const { data, error: fetchError } = await supabaseClient
+          .from('team_matrix')
+          .select('id, pee_count, poop_count')
+          .order('id')
+          .range(from, from + PAGE - 1)
+        if (fetchError) throw fetchError
+        data.forEach((row) => map.set(...toEntry(row)))
+        if (data.length < PAGE) break
+      }
       setMatrix(map)
     } catch (err) {
       console.error('Failed to fetch matrix:', err)
@@ -51,104 +36,54 @@ export function useMinutesMatrixWithClient(supabaseClient, session) {
     } finally {
       setIsLoading(false)
     }
-  }, [supabaseClient, session])
+  }, [supabaseClient])
 
-  // Subscribe to realtime updates
+  // Initial fetch + realtime: any teammate's change re-reads that minute's team total
   useEffect(() => {
     if (!supabaseClient || !session) return
 
     fetchMatrix()
 
-    // Set up realtime subscription
     const channel = supabaseClient
       .channel('minutes-matrix-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'minutes_matrix',
-          // Admin can read every row via RLS; only merge our own minutes
-          filter: `user_id=eq.${session.user.id}`,
-        },
-        (payload) => {
-          const { id, pee_count, poop_count } = payload.new
-          setMatrix((prev) => {
-            const next = new Map(prev)
-            next.set(id, { pee_count, poop_count })
-            return next
-          })
-          setLastUpdate({ id, pee_count, poop_count, at: new Date() })
-        }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'minutes_matrix' }, async (payload) => {
+        const id = payload.new?.id || payload.old?.id
+        if (!id) return
+        const { data } = await supabaseClient
+          .from('team_matrix')
+          .select('id, pee_count, poop_count')
+          .eq('id', id)
+        setMatrix((prev) => {
+          const next = new Map(prev)
+          if (data?.[0]) next.set(...toEntry(data[0]))
+          else next.delete(id)
+          return next
+        })
+      })
       .subscribe()
 
-    channelRef.current = channel
-
     return () => {
-      if (channelRef.current) {
-        supabaseClient.removeChannel(channelRef.current)
-      }
+      supabaseClient.removeChannel(channel)
     }
   }, [supabaseClient, session, fetchMatrix])
 
-  // Increment pee count for a given minute
-  const logPee = useCallback(async (timeStr) => {
-    if (!supabaseClient || !session) return
-    const current = matrix.get(timeStr) || { pee_count: 0, poop_count: 0 }
+  // Atomic +1 on the user's own row and activity_log entry (log_minute RPC)
+  const log = useCallback(async (timeStr, kind) => {
+    const { error: rpcError } = await supabaseClient.rpc('log_minute', { minute_id: timeStr, kind })
+    if (rpcError) throw rpcError
 
-    const { error: updateError } = await supabaseClient
-      .from('minutes_matrix')
-      .upsert({
-        id: timeStr,
-        user_id: session.user.id,
-        pee_count: current.pee_count + 1,
-        poop_count: current.poop_count,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'id,user_id' })
-
-    if (updateError) throw updateError
-    logActivity(supabaseClient, 'pee')
-
-    // Optimistic update
+    // Optimistic update; realtime replaces it with the exact team total
+    const field = `${kind}_count`
     setMatrix((prev) => {
       const next = new Map(prev)
-      next.set(timeStr, {
-        ...current,
-        pee_count: current.pee_count + 1,
-      })
+      const current = prev.get(timeStr) || { pee_count: 0, poop_count: 0 }
+      next.set(timeStr, { ...current, [field]: current[field] + 1 })
       return next
     })
-  }, [supabaseClient, session, matrix])
+  }, [supabaseClient])
 
-  // Increment poop count for a given minute
-  const logPoop = useCallback(async (timeStr) => {
-    if (!supabaseClient || !session) return
-    const current = matrix.get(timeStr) || { pee_count: 0, poop_count: 0 }
-
-    const { error: updateError } = await supabaseClient
-      .from('minutes_matrix')
-      .upsert({
-        id: timeStr,
-        user_id: session.user.id,
-        pee_count: current.pee_count,
-        poop_count: current.poop_count + 1,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'id,user_id' })
-
-    if (updateError) throw updateError
-    logActivity(supabaseClient, 'poop')
-
-    // Optimistic update
-    setMatrix((prev) => {
-      const next = new Map(prev)
-      next.set(timeStr, {
-        ...current,
-        poop_count: current.poop_count + 1,
-      })
-      return next
-    })
-  }, [supabaseClient, session, matrix])
+  const logPee = useCallback((timeStr) => log(timeStr, 'pee'), [log])
+  const logPoop = useCallback((timeStr) => log(timeStr, 'poop'), [log])
 
   // Computed stats
   const stats = {
@@ -173,9 +108,7 @@ export function useMinutesMatrixWithClient(supabaseClient, session) {
     stats,
     isLoading,
     error,
-    lastUpdate,
     logPee,
     logPoop,
-    refresh: fetchMatrix,
   }
 }

@@ -42,6 +42,8 @@ function App() {
       data: { subscription },
     } = supabaseClient.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      // Next login (any user) starts on the main page
+      if (!session) setActiveTab('general')
     })
 
     return () => subscription.unsubscribe()
@@ -220,7 +222,7 @@ function App() {
         ) : activeTab === 'evaluation' ? (
           <EvaluationPage supabaseClient={supabaseClient} session={session} />
         ) : activeTab === 'profile' ? (
-          <ProfilePage supabaseClient={supabaseClient} session={session} userRole={userRole} stats={stats} />
+          <ProfilePage supabaseClient={supabaseClient} session={session} userRole={userRole} />
         ) : activeTab === 'admin' && userRole === 'admin' ? (
           <AdminPanel supabaseClient={supabaseClient} />
         ) : null}

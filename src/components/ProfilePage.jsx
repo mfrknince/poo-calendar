@@ -83,9 +83,10 @@ function PasswordForm({ supabaseClient }) {
   )
 }
 
-export function ProfilePage({ supabaseClient, session, userRole, stats }) {
+export function ProfilePage({ supabaseClient, session, userRole }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
+  const [totals, setTotals] = useState({ pee: 0, poop: 0 })
   const user = session.user
   const username = user.user_metadata?.username || user.email.split('@')[0]
 
@@ -103,6 +104,11 @@ export function ProfilePage({ supabaseClient, session, userRole, stats }) {
         setRows(data || [])
         setLoading(false)
       })
+    // All-time personal totals (the matrix on the main page is the team total)
+    supabaseClient.rpc('my_totals').single().then(({ data, error }) => {
+      if (error) console.error('Totals fetch failed:', error)
+      else setTotals(data)
+    })
   }, [supabaseClient, user.id])
 
   const days = groupByDay(rows)
@@ -128,7 +134,7 @@ export function ProfilePage({ supabaseClient, session, userRole, stats }) {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <StatCard label="Bugün" pee={today.pee} poop={today.poop} />
           <StatCard label="Son 7 Gün" pee={week.pee} poop={week.poop} />
-          <StatCard label="Toplam" pee={stats.totalPee} poop={stats.totalPoop} />
+          <StatCard label="Toplam" pee={totals.pee} poop={totals.poop} />
         </div>
 
         {/* Daily breakdown */}
