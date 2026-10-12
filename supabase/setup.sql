@@ -249,51 +249,54 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ==========================================================
--- 9. TUVALET DEĞERLENDİRME TABLOSU (Bristol Dışkı Skalası)
+-- 9. TUVALET DEĞERLENDİRME (Harita + puan + yorum + etiket)
 -- ==========================================================
-DROP TABLE IF EXISTS public.evaluations CASCADE;
+DROP TABLE IF EXISTS public.evaluations CASCADE; -- eski Bristol tablosu
+DROP TABLE IF EXISTS public.toilet_reviews CASCADE;
+DROP TABLE IF EXISTS public.toilets CASCADE;
 
-CREATE TABLE public.evaluations (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  logged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  type TEXT NOT NULL CHECK (type IN ('poop', 'pee')),
-  -- Bristol Stool Scale (1-7, sadece poop için)
-  bristol_type INT CHECK (bristol_type BETWEEN 1 AND 7),
-  -- Renk (HEX kodu veya tanımlayıcı)
-  color TEXT,
-  -- Kıvam/doku notu (kullanıcı seçimi)
-  consistency TEXT,
-  -- Süre (dakika cinsinden)
-  duration_minutes INT,
-  -- Kullanıcı notu (max 500 karakter)
-  notes TEXT CHECK (char_length(notes) <= 500),
-  -- Aciliyet seviyesi 1-5
-  urgency INT CHECK (urgency BETWEEN 1 AND 5),
+CREATE TABLE public.toilets (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 100),
+  lat DOUBLE PRECISION NOT NULL,
+  lng DOUBLE PRECISION NOT NULL,
+  created_by UUID NOT NULL DEFAULT auth.uid() REFERENCES public.profiles(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- RLS aktif et
-ALTER TABLE public.evaluations ENABLE ROW LEVEL SECURITY;
+-- Her kullanıcı bir tuvalete tek değerlendirme yapar (tekrar kaydederse güncellenir)
+CREATE TABLE public.toilet_reviews (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  toilet_id BIGINT NOT NULL REFERENCES public.toilets(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES public.profiles(id) ON DELETE CASCADE,
+  rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment TEXT CHECK (char_length(comment) <= 500),
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (toilet_id, user_id)
+);
 
--- Politikalar
-CREATE POLICY "Kullanıcılar kendi değerlendirmelerini görebilir" ON public.evaluations
-  FOR SELECT USING (auth.uid() = user_id);
+ALTER TABLE public.toilets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.toilet_reviews ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Kullanıcılar kendi değerlendirmelerini ekleyebilir" ON public.evaluations
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
+-- Tuvaletler ve değerlendirmeler tüm giriş yapmış kullanıcılara açık
+CREATE POLICY "Herkes tuvaletleri görebilir" ON public.toilets
+  FOR SELECT TO authenticated USING (true);
 
-CREATE POLICY "Kullanıcılar kendi değerlendirmelerini güncelleyebilir" ON public.evaluations
+CREATE POLICY "Kullanıcılar tuvalet ekleyebilir" ON public.toilets
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = created_by);
+
+CREATE POLICY "Herkes değerlendirmeleri görebilir" ON public.toilet_reviews
+  FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Kullanıcılar değerlendirme ekleyebilir" ON public.toilet_reviews
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Kullanıcılar kendi değerlendirmesini güncelleyebilir" ON public.toilet_reviews
   FOR UPDATE USING (auth.uid() = user_id);
 
-CREATE POLICY "Kullanıcılar kendi değerlendirmelerini silebilir" ON public.evaluations
-  FOR DELETE USING (auth.uid() = user_id);
-
-CREATE POLICY "Adminler tüm değerlendirmeleri görebilir" ON public.evaluations
-  FOR SELECT USING (public.is_admin());
-
-CREATE POLICY "Adminler tüm değerlendirmeleri silebilir" ON public.evaluations
-  FOR DELETE USING (public.is_admin());
+CREATE POLICY "Kullanıcılar kendi değerlendirmesini silebilir" ON public.toilet_reviews
+  FOR DELETE USING (auth.uid() = user_id OR public.is_admin());
 
 -- ==========================================================
 -- 10. AKTİVİTE GÜNLÜĞÜ (Profil sayfası günlük/haftalık istatistikleri)

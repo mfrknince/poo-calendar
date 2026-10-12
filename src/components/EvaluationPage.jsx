@@ -1,518 +1,319 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
-// Bristol Stool Scale definitions
-const BRISTOL_TYPES = [
-  {
-    type: 1,
-    emoji: '🪨',
-    name: 'Tip 1',
-    desc: 'Ayrı sert topaklar',
-    detail: 'Keçi dışkısı gibi — çok katı',
-    color: '#8B4513',
-    health: 'danger',
-  },
-  {
-    type: 2,
-    emoji: '🍫',
-    name: 'Tip 2',
-    desc: 'Sosis şeklinde, topaklanmış',
-    detail: 'Fıstık kaplı çikolata gibi',
-    color: '#A0522D',
-    health: 'warning',
-  },
-  {
-    type: 3,
-    emoji: '🌭',
-    name: 'Tip 3',
-    desc: 'Sosis şeklinde, çatlak yüzey',
-    detail: 'Sosisimitasyonu — kabul edilebilir',
-    color: '#8B6914',
-    health: 'ok',
-  },
-  {
-    type: 4,
-    emoji: '🍌',
-    name: 'Tip 4',
-    desc: 'Sosis ya da yılan gibi, pürüzsüz',
-    detail: 'İDEAL TIP ✓ — Sağlıklı dışkı',
-    color: '#6B8E23',
-    health: 'ideal',
-  },
-  {
-    type: 5,
-    emoji: '🫐',
-    name: 'Tip 5',
-    desc: 'Belirgin kenarlı yumuşak parçalar',
-    detail: 'Biraz fazla yumuşak — ok ama izle',
-    color: '#DAA520',
-    health: 'ok',
-  },
-  {
-    type: 6,
-    emoji: '🥣',
-    name: 'Tip 6',
-    desc: 'Pürüzlü kenarlı lifli parçalar',
-    detail: 'Hafif ishal — dikkat et',
-    color: '#CD853F',
-    health: 'warning',
-  },
-  {
-    type: 7,
-    emoji: '💧',
-    name: 'Tip 7',
-    desc: 'Katı kısım yok, tamamen sıvı',
-    detail: 'İshal — doktora başvur!',
-    color: '#B22222',
-    health: 'danger',
-  },
-]
+const TAGS = ['💩 Sıçılır', '☝️ 1 kere sıçarsın', '🚨 Acil durum', '☠️ Sıçma öl']
+const DEFAULT_CENTER = [41.0082, 28.9784] // İstanbul
 
-const COLORS = [
-  { label: 'Kahverengi', value: '#8B4513' },
-  { label: 'Koyu Kahve', value: '#5C2E00' },
-  { label: 'Sarı-Yeşil', value: '#9ACD32' },
-  { label: 'Sarı', value: '#FFD700' },
-  { label: 'Kırmızı', value: '#DC143C' },
-  { label: 'Siyah', value: '#1a1a1a' },
-  { label: 'Gri', value: '#808080' },
-  { label: 'Beyaz/Bej', value: '#F5DEB3' },
-]
+const average = (reviews) =>
+  reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : null
 
-const URGENCY_LABELS = ['', '😌 Sakin', '🙂 Hafif', '😅 Orta', '😣 Acil', '🚨 Çok Acil']
+const markerColor = (avg) =>
+  avg === null ? '#94a3b8' : avg >= 4 ? '#22c55e' : avg >= 2.5 ? '#f59e0b' : '#ef4444'
 
-const HEALTH_STYLES = {
-  ideal: 'border-emerald-400/60 bg-emerald-500/10',
-  ok: 'border-yellow-400/50 bg-yellow-500/10',
-  warning: 'border-orange-400/50 bg-orange-500/10',
-  danger: 'border-red-400/50 bg-red-500/10',
-}
-
-const HEALTH_BADGE = {
-  ideal: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  ok: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
-  warning: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
-  danger: 'bg-red-500/20 text-red-300 border-red-500/30',
-}
-
-const HEALTH_LABELS = {
-  ideal: '✓ İdeal',
-  ok: '⚠ Kabul Edilebilir',
-  warning: '⚠ Dikkat',
-  danger: '🚨 Endişe Verici',
-}
-
-function BristolCard({ item, selected, onSelect }) {
+function Stars({ value, onChange }) {
   return (
-    <button
-      onClick={() => onSelect(item.type)}
-      className={`w-full text-left p-3 sm:p-4 rounded-xl border-2 transition-all duration-200 ${
-        selected
-          ? `${HEALTH_STYLES[item.health]} scale-[1.02] shadow-lg`
-          : 'border-slate-700/50 bg-slate-800/30 hover:border-slate-600/70 hover:bg-slate-700/30'
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <span className="text-2xl sm:text-3xl flex-shrink-0 mt-0.5">{item.emoji}</span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-bold text-white text-sm">{item.name}</span>
-            {selected && (
-              <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${HEALTH_BADGE[item.health]}`}>
-                {HEALTH_LABELS[item.health]}
-              </span>
-            )}
-          </div>
-          <p className="text-slate-300 text-xs sm:text-sm mt-0.5">{item.desc}</p>
-          <p className="text-slate-500 text-xs mt-1 italic">{item.detail}</p>
-        </div>
-        <div
-          className="w-4 h-4 rounded-full flex-shrink-0 mt-1 border-2 border-slate-600"
-          style={{ backgroundColor: item.color }}
-        />
-      </div>
-    </button>
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          disabled={!onChange}
+          onClick={() => onChange(n)}
+          className={`text-2xl transition-transform ${onChange ? 'hover:scale-110' : 'cursor-default'} ${
+            n <= value ? '' : 'grayscale opacity-30'
+          }`}
+          aria-label={`${n} puan`}
+        >
+          ⭐
+        </button>
+      ))}
+    </div>
   )
 }
 
-function EvalHistory({ evaluations, onDelete }) {
-  if (!evaluations.length) {
-    return (
-      <div className="text-center py-8 text-slate-500">
-        <div className="text-3xl mb-2">📋</div>
-        <p className="text-sm">Henüz değerlendirme yok</p>
-      </div>
-    )
+function ReviewForm({ isNew, myReview, onSave, onDelete }) {
+  const [name, setName] = useState('')
+  const [rating, setRating] = useState(myReview?.rating || 0)
+  const [tags, setTags] = useState(myReview?.tags || [])
+  const [comment, setComment] = useState(myReview?.comment || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const toggleTag = (tag) =>
+    setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!rating) return setError('Lütfen 1-5 arası puan verin.')
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave({ name: name.trim(), rating, tags, comment: comment.trim() })
+    } catch (err) {
+      setError('Kayıt hatası: ' + err.message)
+      setSaving(false)
+    }
   }
 
   return (
-    <div className="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1">
-      {evaluations.map((ev) => {
-        const bristol = BRISTOL_TYPES.find((b) => b.type === ev.bristol_type)
-        const colorInfo = COLORS.find((c) => c.value === ev.color)
-        const date = new Date(ev.logged_at)
-        return (
-          <div
-            key={ev.id}
-            className="flex items-start gap-3 p-3 bg-slate-800/40 rounded-xl border border-slate-700/50 group"
-          >
-            <span className="text-xl flex-shrink-0">
-              {ev.type === 'poop' ? '💩' : '💧'}
-            </span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-white text-sm font-medium">
-                  {date.toLocaleDateString('tr-TR')} {date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                {bristol && (
-                  <span className={`text-xs px-2 py-0.5 rounded-full border ${HEALTH_BADGE[bristol.health]}`}>
-                    {bristol.emoji} {bristol.name}
-                  </span>
-                )}
-                {ev.urgency && (
-                  <span className="text-xs text-slate-400">{URGENCY_LABELS[ev.urgency]}</span>
-                )}
-              </div>
-              {ev.notes && (
-                <p className="text-slate-400 text-xs mt-1 line-clamp-2">{ev.notes}</p>
-              )}
-              <div className="flex items-center gap-2 mt-1">
-                {colorInfo && (
-                  <span className="text-xs text-slate-500 flex items-center gap-1">
-                    <span
-                      className="w-3 h-3 rounded-full border border-slate-600 inline-block"
-                      style={{ backgroundColor: colorInfo.value }}
-                    />
-                    {colorInfo.label}
-                  </span>
-                )}
-                {ev.duration_minutes && (
-                  <span className="text-xs text-slate-500">⏱ {ev.duration_minutes} dk</span>
-                )}
-              </div>
-            </div>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      {isNew && (
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Tuvalet Adı</label>
+          <input
+            required
+            maxLength={100}
+            placeholder="ör. Kadıköy Metro WC"
+            className="w-full bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-2.5 text-white"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+      )}
+      <div>
+        <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Puanın</label>
+        <Stars value={rating} onChange={setRating} />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Etiketler</label>
+        <div className="flex flex-wrap gap-2">
+          {TAGS.map((tag) => (
             <button
-              onClick={() => onDelete(ev.id)}
-              className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all text-xs px-2 py-1 rounded-lg hover:bg-red-500/10 flex-shrink-0"
+              key={tag}
+              type="button"
+              onClick={() => toggleTag(tag)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                tags.includes(tag)
+                  ? 'bg-accent-500/20 border-accent-500/50 text-white'
+                  : 'border-slate-700/50 text-slate-400 hover:text-slate-200'
+              }`}
             >
-              🗑
+              {tag}
             </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Yorum</label>
+        <textarea
+          rows={3}
+          maxLength={500}
+          placeholder="Temizlik, kağıt, kuyruk..."
+          className="w-full bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-2.5 text-white resize-none"
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+        />
+      </div>
+      {error && (
+        <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
+      )}
+      <div className="flex gap-3">
+        {myReview && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="flex-1 bg-slate-800 hover:bg-red-500/20 text-red-400 font-medium py-2.5 rounded-lg transition-colors"
+          >
+            Değerlendirmemi Sil
+          </button>
+        )}
+        <button
+          type="submit"
+          disabled={saving}
+          className="flex-1 bg-accent-500 hover:bg-accent-400 text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {saving ? 'Kaydediliyor...' : myReview ? 'Güncelle' : 'Kaydet'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function ToiletDetails({ toilet, userId }) {
+  const avg = average(toilet.toilet_reviews)
+  const tagCounts = TAGS.map((tag) => [tag, toilet.toilet_reviews.filter((r) => r.tags.includes(tag)).length])
+    .filter(([, count]) => count > 0)
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Stars value={Math.round(avg || 0)} />
+        <span className="text-slate-300 text-sm">
+          {avg === null ? 'Henüz puan yok' : `${avg.toFixed(1)} / 5 · ${toilet.toilet_reviews.length} değerlendirme`}
+        </span>
+      </div>
+      {tagCounts.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {tagCounts.map(([tag, count]) => (
+            <span key={tag} className="px-3 py-1 rounded-full text-xs bg-slate-800 text-slate-300">
+              {tag} <span className="text-slate-500">×{count}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {toilet.toilet_reviews.filter((r) => r.comment).map((r) => (
+        <div key={r.id} className="p-3 rounded-lg bg-slate-800/40 border border-slate-700/30 text-sm">
+          <div className="flex justify-between text-xs text-slate-500 mb-1">
+            <span>{'⭐'.repeat(r.rating)} {r.user_id === userId && '· Sen'}</span>
+            <span>{new Date(r.created_at).toLocaleDateString('tr-TR')}</span>
           </div>
-        )
-      })}
+          <p className="text-slate-200 whitespace-pre-wrap break-words">{r.comment}</p>
+        </div>
+      ))}
     </div>
   )
 }
 
 export function EvaluationPage({ supabaseClient, session }) {
-  const [type, setType] = useState('poop')
-  const [bristolType, setBristolType] = useState(null)
-  const [color, setColor] = useState(null)
-  const [urgency, setUrgency] = useState(3)
-  const [duration, setDuration] = useState('')
-  const [notes, setNotes] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [success, setSuccess] = useState(false)
+  const [toilets, setToilets] = useState([])
+  const [selectedId, setSelectedId] = useState(null)
+  const [draft, setDraft] = useState(null) // { lat, lng } of a new toilet being added
   const [error, setError] = useState(null)
-  const [evaluations, setEvaluations] = useState([])
-  const [loadingHistory, setLoadingHistory] = useState(false)
-  const [activeSection, setActiveSection] = useState('form')
+  const containerRef = useRef(null)
+  const mapRef = useRef(null)
+  const layerRef = useRef(null)
+  const userId = session.user.id
 
-  const loadHistory = useCallback(async () => {
-    if (!supabaseClient || !session) return
-    setLoadingHistory(true)
+  // ponytail: loads every toilet + review at once; add bbox filtering if it grows past a few thousand
+  const load = useCallback(async () => {
     const { data, error } = await supabaseClient
-      .from('evaluations')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .order('logged_at', { ascending: false })
-      .limit(50)
-    if (!error && data) setEvaluations(data)
-    setLoadingHistory(false)
-  }, [supabaseClient, session])
+      .from('toilets')
+      .select('id, name, lat, lng, toilet_reviews(id, user_id, rating, comment, tags, created_at)')
+    if (error) setError(error.message)
+    else setToilets(data)
+  }, [supabaseClient])
 
   useEffect(() => {
-    loadHistory()
-  }, [loadHistory])
+    load()
+  }, [load])
 
-  const handleSubmit = async () => {
-    if (!supabaseClient || !session) {
-      setError('Oturum bulunamadı. Lütfen tekrar giriş yapın.')
-      return
+  // Create the map once
+  useEffect(() => {
+    const map = L.map(containerRef.current).setView(DEFAULT_CENTER, 12)
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(map)
+    map.on('click', (e) => {
+      setSelectedId(null)
+      setDraft(e.latlng)
+    })
+    layerRef.current = L.layerGroup().addTo(map)
+    mapRef.current = map
+    return () => map.remove()
+  }, [])
+
+  // Redraw markers
+  useEffect(() => {
+    const layer = layerRef.current
+    layer.clearLayers()
+    toilets.forEach((t) => {
+      const avg = average(t.toilet_reviews)
+      L.circleMarker([t.lat, t.lng], {
+        radius: t.id === selectedId ? 12 : 9,
+        color: '#0f172a',
+        weight: 2,
+        fillColor: markerColor(avg),
+        fillOpacity: 0.9,
+        bubblingMouseEvents: false,
+      })
+        .bindTooltip(`${t.name}${avg === null ? '' : ` · ${avg.toFixed(1)}⭐`}`)
+        .on('click', () => {
+          setDraft(null)
+          setSelectedId(t.id)
+        })
+        .addTo(layer)
+    })
+    if (draft) {
+      L.circleMarker([draft.lat, draft.lng], { radius: 10, color: '#fff', weight: 2, fillColor: '#3b82f6', fillOpacity: 1 })
+        .addTo(layer)
     }
-    if (type === 'poop' && !bristolType) {
-      setError('Lütfen bir Bristol tipi seçin.')
-      return
+  }, [toilets, selectedId, draft])
+
+  const locateMe = () =>
+    navigator.geolocation?.getCurrentPosition(
+      (pos) => mapRef.current.setView([pos.coords.latitude, pos.coords.longitude], 16),
+      () => setError('Konum alınamadı.'),
+    )
+
+  const selected = toilets.find((t) => t.id === selectedId)
+  const myReview = selected?.toilet_reviews.find((r) => r.user_id === userId)
+
+  const handleSave = async ({ name, rating, tags, comment }) => {
+    let toiletId = selectedId
+    if (draft) {
+      const { data, error } = await supabaseClient
+        .from('toilets')
+        .insert({ name, lat: draft.lat, lng: draft.lng })
+        .select('id')
+        .single()
+      if (error) throw error
+      toiletId = data.id
     }
-    setSaving(true)
-    setError(null)
-
-    const payload = {
-      user_id: session.user.id,
-      type,
-      logged_at: new Date().toISOString(),
-      urgency: urgency || null,
-      notes: notes.trim() || null,
-      color: color || null,
-      duration_minutes: duration ? parseInt(duration, 10) : null,
-      bristol_type: type === 'poop' ? bristolType : null,
-    }
-
-    const { error: insertError } = await supabaseClient.from('evaluations').insert(payload)
-
-    if (insertError) {
-      setError(`Kayıt hatası: ${insertError.message}`)
-      setSaving(false)
-      return
-    }
-
-    setSuccess(true)
-    setBristolType(null)
-    setColor(null)
-    setUrgency(3)
-    setDuration('')
-    setNotes('')
-    setTimeout(() => setSuccess(false), 3000)
-    setSaving(false)
-    loadHistory()
+    const { error } = await supabaseClient
+      .from('toilet_reviews')
+      .upsert({ toilet_id: toiletId, user_id: userId, rating, tags, comment: comment || null }, { onConflict: 'toilet_id,user_id' })
+    if (error) throw error
+    await load()
+    setDraft(null)
+    setSelectedId(toiletId)
   }
 
-  const handleDelete = async (id) => {
-    if (!supabaseClient) return
-    await supabaseClient.from('evaluations').delete().eq('id', id)
-    setEvaluations((prev) => prev.filter((e) => e.id !== id))
+  const handleDelete = async () => {
+    const { error } = await supabaseClient.from('toilet_reviews').delete().eq('id', myReview.id)
+    if (error) setError(error.message)
+    else load()
   }
 
   return (
     <div className="w-full px-4 sm:px-6 flex-1 flex flex-col items-center gap-4 pb-8">
-      {/* Page Header */}
-      <div className="w-full max-w-2xl">
-        <div className="glass-card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+      <div className="w-full max-w-2xl flex flex-col gap-4 animate-fade-in-up">
+        <div className="glass-card p-5 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              🧻 Tuvalet Değerlendirmesi
-            </h2>
-            <p className="text-slate-400 text-sm mt-0.5">
-              Bristol dışkı skalası ile detaylı kayıt
-            </p>
+            <h2 className="text-xl font-bold text-white">🚽 Tuvalet Değerlendirme</h2>
+            <p className="text-slate-400 text-sm mt-0.5">Haritada bir tuvalete tıkla ya da boş bir yere tıklayıp yeni ekle</p>
           </div>
-          <div className="flex gap-1 p-1 bg-slate-800/50 rounded-xl border border-slate-700/50">
-            <button
-              onClick={() => setActiveSection('form')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                activeSection === 'form'
-                  ? 'bg-slate-700 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              ✏️ Yeni Kayıt
-            </button>
-            <button
-              onClick={() => setActiveSection('history')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                activeSection === 'history'
-                  ? 'bg-slate-700 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              📋 Geçmiş {evaluations.length > 0 && `(${evaluations.length})`}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {activeSection === 'form' ? (
-        <div className="w-full max-w-2xl flex flex-col gap-4">
-          {/* Type Selection */}
-          <div className="glass-card p-5">
-            <h3 className="text-sm font-semibold text-slate-300 mb-3 uppercase tracking-wider">
-              Tuvalet Tipi
-            </h3>
-            <div className="flex gap-3">
-              <button
-                onClick={() => { setType('poop'); setBristolType(null) }}
-                className={`flex-1 py-3 rounded-xl border-2 font-bold text-sm transition-all ${
-                  type === 'poop'
-                    ? 'border-amber-500/60 bg-amber-500/10 text-amber-300'
-                    : 'border-slate-700/50 bg-slate-800/30 text-slate-400 hover:border-slate-600'
-                }`}
-              >
-                💩 Sıçtım
-              </button>
-              <button
-                onClick={() => { setType('pee'); setBristolType(null) }}
-                className={`flex-1 py-3 rounded-xl border-2 font-bold text-sm transition-all ${
-                  type === 'pee'
-                    ? 'border-sky-500/60 bg-sky-500/10 text-sky-300'
-                    : 'border-slate-700/50 bg-slate-800/30 text-slate-400 hover:border-slate-600'
-                }`}
-              >
-                💧 İşedim
-              </button>
-            </div>
-          </div>
-
-          {/* Bristol Scale - only for poop */}
-          {type === 'poop' && (
-            <div className="glass-card p-5">
-              <h3 className="text-sm font-semibold text-slate-300 mb-1 uppercase tracking-wider">
-                Bristol Dışkı Skalası
-              </h3>
-              <p className="text-slate-500 text-xs mb-3">
-                Dışkınızın şekline en yakın tipi seçin
-              </p>
-              <div className="flex flex-col gap-2">
-                {BRISTOL_TYPES.map((item) => (
-                  <BristolCard
-                    key={item.type}
-                    item={item}
-                    selected={bristolType === item.type}
-                    onSelect={setBristolType}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Color Selection */}
-          <div className="glass-card p-5">
-            <h3 className="text-sm font-semibold text-slate-300 mb-3 uppercase tracking-wider">
-              {type === 'poop' ? 'Renk' : 'İdrar Rengi'}
-            </h3>
-            <div className="grid grid-cols-4 gap-2">
-              {COLORS.map((c) => (
-                <button
-                  key={c.value}
-                  onClick={() => setColor(color === c.value ? null : c.value)}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-xl border-2 transition-all text-xs ${
-                    color === c.value
-                      ? 'border-white/40 bg-white/10'
-                      : 'border-slate-700/50 bg-slate-800/30 hover:border-slate-600'
-                  }`}
-                >
-                  <span
-                    className="w-6 h-6 rounded-full border-2 border-slate-600"
-                    style={{ backgroundColor: c.value }}
-                  />
-                  <span className="text-slate-300 text-center leading-tight">{c.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Urgency */}
-          <div className="glass-card p-5">
-            <h3 className="text-sm font-semibold text-slate-300 mb-3 uppercase tracking-wider">
-              Aciliyet Seviyesi
-            </h3>
-            <div className="flex gap-2 flex-wrap">
-              {[1, 2, 3, 4, 5].map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setUrgency(level)}
-                  className={`flex-1 min-w-[60px] py-2 px-1 rounded-xl border-2 text-xs font-medium transition-all text-center ${
-                    urgency === level
-                      ? level <= 2
-                        ? 'border-emerald-400/60 bg-emerald-500/10 text-emerald-300'
-                        : level === 3
-                        ? 'border-yellow-400/60 bg-yellow-500/10 text-yellow-300'
-                        : 'border-red-400/60 bg-red-500/10 text-red-300'
-                      : 'border-slate-700/50 bg-slate-800/30 text-slate-400 hover:border-slate-600'
-                  }`}
-                >
-                  {URGENCY_LABELS[level]}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Duration + Notes */}
-          <div className="glass-card p-5">
-            <h3 className="text-sm font-semibold text-slate-300 mb-3 uppercase tracking-wider">
-              Detaylar
-            </h3>
-            <div className="flex flex-col gap-3">
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">
-                  ⏱ Süre (dakika, opsiyonel)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  placeholder="Kaç dakika?"
-                  className="w-full bg-slate-800/50 border border-slate-700/60 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-slate-500 transition-colors placeholder:text-slate-600"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 mb-1 flex justify-between">
-                  <span>📝 Notlar (opsiyonel)</span>
-                  <span className={notes.length > 400 ? 'text-red-400' : 'text-slate-600'}>
-                    {notes.length}/500
-                  </span>
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value.slice(0, 500))}
-                  placeholder="Nasıldı? Ne hissettirdi? Yediğin bir şeyle bağlantılı mı?"
-                  rows={3}
-                  className="w-full bg-slate-800/50 border border-slate-700/60 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-slate-500 transition-colors placeholder:text-slate-600 resize-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-300 text-sm">
-              ⚠️ {error}
-            </div>
-          )}
-
-          {/* Submit */}
           <button
-            onClick={handleSubmit}
-            disabled={saving || (type === 'poop' && !bristolType)}
-            className={`w-full py-4 rounded-xl font-bold text-base transition-all ${
-              success
-                ? 'bg-emerald-600/80 border-2 border-emerald-400/60 text-white'
-                : type === 'poop' && !bristolType
-                ? 'bg-slate-700/50 border-2 border-slate-600/50 text-slate-500 cursor-not-allowed'
-                : 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-lg shadow-violet-500/20 active:scale-[0.98]'
-            }`}
+            onClick={locateMe}
+            className="shrink-0 px-3 py-2 rounded-lg text-sm bg-slate-800 hover:bg-slate-700 text-white transition-colors"
           >
-            {saving ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Kaydediliyor...
-              </span>
-            ) : success ? (
-              '✅ Kaydedildi!'
-            ) : (
-              `💾 Değerlendirmeyi Kaydet`
-            )}
+            📍 Konumum
           </button>
         </div>
-      ) : (
-        <div className="w-full max-w-2xl">
-          <div className="glass-card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-                Değerlendirme Geçmişi
-              </h3>
+
+        {/* relative z-0 keeps Leaflet's high z-index panes below toasts */}
+        <div ref={containerRef} className="relative z-0 h-80 sm:h-96 w-full rounded-xl overflow-hidden border border-glass-border" />
+
+        {error && (
+          <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
+        )}
+
+        {(selected || draft) && (
+          <div className="glass-card p-6 flex flex-col gap-5">
+            <div className="flex justify-between items-start gap-3">
+              <h3 className="text-lg font-bold text-white">{draft ? '✨ Yeni Tuvalet' : selected.name}</h3>
               <button
-                onClick={loadHistory}
-                disabled={loadingHistory}
-                className="text-xs text-slate-400 hover:text-white transition-colors px-2 py-1 rounded-lg hover:bg-slate-700/50"
+                onClick={() => { setDraft(null); setSelectedId(null) }}
+                className="text-slate-400 hover:text-white text-sm"
+                aria-label="Kapat"
               >
-                {loadingHistory ? '⟳' : '🔄 Yenile'}
+                ✕
               </button>
             </div>
-            <EvalHistory evaluations={evaluations} onDelete={handleDelete} />
+            {selected && <ToiletDetails toilet={selected} userId={userId} />}
+            <div className="border-t border-slate-700/50 pt-5">
+              <ReviewForm
+                key={draft ? `${draft.lat},${draft.lng}` : `${selectedId}-${myReview?.id}`}
+                isNew={!!draft}
+                myReview={myReview}
+                onSave={handleSave}
+                onDelete={handleDelete}
+              />
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
