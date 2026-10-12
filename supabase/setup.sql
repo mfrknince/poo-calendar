@@ -31,6 +31,9 @@ CREATE TABLE public.minutes_matrix (
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.minutes_matrix ENABLE ROW LEVEL SECURITY;
 
+-- Realtime: DROP TABLE tabloyu yayından çıkarır, yeniden ekle
+ALTER PUBLICATION supabase_realtime ADD TABLE public.minutes_matrix;
+
 -- 5. Güvenlik Politikaları ve Helper Fonksiyon
 -- Infinite recursion (sonsuz döngü) hatasını önlemek için RLS'i bypass eden bir helper yazıyoruz.
 CREATE OR REPLACE FUNCTION public.is_admin()
@@ -244,3 +247,50 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ==========================================================
+-- 9. TUVALET DEĞERLENDİRME TABLOSU (Bristol Dışkı Skalası)
+-- ==========================================================
+DROP TABLE IF EXISTS public.evaluations CASCADE;
+
+CREATE TABLE public.evaluations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  logged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  type TEXT NOT NULL CHECK (type IN ('poop', 'pee')),
+  -- Bristol Stool Scale (1-7, sadece poop için)
+  bristol_type INT CHECK (bristol_type BETWEEN 1 AND 7),
+  -- Renk (HEX kodu veya tanımlayıcı)
+  color TEXT,
+  -- Kıvam/doku notu (kullanıcı seçimi)
+  consistency TEXT,
+  -- Süre (dakika cinsinden)
+  duration_minutes INT,
+  -- Kullanıcı notu (max 500 karakter)
+  notes TEXT CHECK (char_length(notes) <= 500),
+  -- Aciliyet seviyesi 1-5
+  urgency INT CHECK (urgency BETWEEN 1 AND 5),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- RLS aktif et
+ALTER TABLE public.evaluations ENABLE ROW LEVEL SECURITY;
+
+-- Politikalar
+CREATE POLICY "Kullanıcılar kendi değerlendirmelerini görebilir" ON public.evaluations
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Kullanıcılar kendi değerlendirmelerini ekleyebilir" ON public.evaluations
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Kullanıcılar kendi değerlendirmelerini güncelleyebilir" ON public.evaluations
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Kullanıcılar kendi değerlendirmelerini silebilir" ON public.evaluations
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE POLICY "Adminler tüm değerlendirmeleri görebilir" ON public.evaluations
+  FOR SELECT USING (public.is_admin());
+
+CREATE POLICY "Adminler tüm değerlendirmeleri silebilir" ON public.evaluations
+  FOR DELETE USING (public.is_admin());

@@ -12,11 +12,7 @@ import { ToastContainer, useToasts } from './components/Toast'
 import { EvaluationPage } from './components/EvaluationPage'
 import { useCurrentTime } from './hooks/useCurrentTime'
 import { useMinutesMatrixWithClient } from './hooks/useMinutesMatrixWithClient'
-import { testConnection } from './lib/supabaseFactory'
-
-// Check if credentials are already saved
-const savedUrl = localStorage.getItem('poo-calendar-supabase-url')
-const savedKey = localStorage.getItem('poo-calendar-supabase-key')
+import { testConnection, saveConfig, createConfiguredClient } from './lib/supabaseFactory'
 
 function App() {
   const { t } = useTranslation()
@@ -24,31 +20,14 @@ function App() {
   const { toasts, addToast, dismissToast } = useToasts()
 
   // Supabase client & session state
-  const [supabaseClient, setSupabaseClient] = useState(null)
+  // Connects straight away with the default (.env) or admin-saved config
+  const [supabaseClient, setSupabaseClient] = useState(createConfiguredClient)
   const [session, setSession] = useState(null)
   const [userRole, setUserRole] = useState('user')
-  const [isSetup, setIsSetup] = useState(!savedUrl || !savedKey)
-  
+  const isSetup = !supabaseClient
+
   // Tabs state
   const [activeTab, setActiveTab] = useState('general')
-
-  // Auto-connect if we have saved credentials
-  const [autoConnected, setAutoConnected] = useState(false)
-  if (!autoConnected && savedUrl && savedKey && !supabaseClient) {
-    // Attempt auto-connect on first render
-    testConnection(savedUrl, savedKey)
-      .then((client) => {
-        setSupabaseClient(client)
-        setIsSetup(false)
-      })
-      .catch(() => {
-        // If auto-connect fails, show setup
-        localStorage.removeItem('poo-calendar-supabase-url')
-        localStorage.removeItem('poo-calendar-supabase-key')
-        setIsSetup(true)
-      })
-    setAutoConnected(true)
-  }
 
   // Listen for auth changes
   useEffect(() => {
@@ -99,10 +78,8 @@ function App() {
   // Handle setup connection
   const handleConnect = useCallback(async (url, key) => {
     const client = await testConnection(url, key)
-    localStorage.setItem('poo-calendar-supabase-url', url)
-    localStorage.setItem('poo-calendar-supabase-key', key)
+    saveConfig(url, key)
     setSupabaseClient(client)
-    setIsSetup(false)
   }, [])
 
   // Handle pee action
@@ -230,7 +207,7 @@ function App() {
             />
           </>
         ) : activeTab === 'evaluation' ? (
-          <EvaluationPage />
+          <EvaluationPage supabaseClient={supabaseClient} session={session} />
         ) : activeTab === 'admin' && userRole === 'admin' ? (
           <AdminPanel supabaseClient={supabaseClient} />
         ) : null}

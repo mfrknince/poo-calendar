@@ -1,4 +1,79 @@
 import { useState, useEffect } from 'react'
+import { getConfig, saveConfig, resetConfig, testConnection } from '../lib/supabaseFactory'
+
+function DbSettings() {
+  const config = getConfig()
+  const [url, setUrl] = useState(config.url)
+  const [key, setKey] = useState(config.key)
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      await testConnection(url.trim(), key.trim())
+      saveConfig(url.trim(), key.trim())
+      window.location.reload()
+    } catch (err) {
+      alert('Hata: ' + err.message)
+      setSaving(false)
+    }
+  }
+
+  const handleReset = () => {
+    resetConfig()
+    window.location.reload()
+  }
+
+  return (
+    <div className="glass-card p-6 w-full animate-fade-in-up">
+      <h2 className="text-xl font-bold text-white mb-1">🗄️ Veritabanı Bağlantısı</h2>
+      <p className="text-xs text-slate-400 mb-4">
+        {config.isOverride ? 'Bu cihazda özel bağlantı kullanılıyor.' : 'Varsayılan (appsettings.json) bağlantı kullanılıyor.'}
+      </p>
+      <form onSubmit={handleSave} className="flex flex-col gap-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Supabase URL</label>
+          <input
+            type="url"
+            required
+            className="w-full bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-2.5 text-white font-mono text-sm"
+            value={url}
+            onChange={e => setUrl(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Anon Key</label>
+          <input
+            type="password"
+            required
+            className="w-full bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-2.5 text-white font-mono text-sm"
+            value={key}
+            onChange={e => setKey(e.target.value)}
+          />
+        </div>
+        <div className="flex gap-3">
+          {config.isOverride && config.hasDefault && (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-medium py-2.5 rounded-lg transition-colors"
+            >
+              Varsayılana Dön
+            </button>
+          )}
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex-1 bg-accent-500 hover:bg-accent-400 text-white font-medium py-2.5 rounded-lg transition-colors"
+          >
+            {saving ? 'Test ediliyor...' : 'Test Et ve Kaydet'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
 
 export function AdminPanel({ supabaseClient }) {
   const [users, setUsers] = useState([])
@@ -242,6 +317,8 @@ export function AdminPanel({ supabaseClient }) {
           </table>
         </div>
       </div>
+
+      <DbSettings />
     </div>
   )
 }

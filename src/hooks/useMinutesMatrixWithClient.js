@@ -48,7 +48,7 @@ export function useMinutesMatrixWithClient(supabaseClient, session) {
 
   // Subscribe to realtime updates
   useEffect(() => {
-    if (!supabaseClient) return
+    if (!supabaseClient || !session) return
 
     fetchMatrix()
 
@@ -61,6 +61,8 @@ export function useMinutesMatrixWithClient(supabaseClient, session) {
           event: 'UPDATE',
           schema: 'public',
           table: 'minutes_matrix',
+          // Admin can read every row via RLS; only merge our own minutes
+          filter: `user_id=eq.${session.user.id}`,
         },
         (payload) => {
           const { id, pee_count, poop_count } = payload.new
@@ -81,7 +83,7 @@ export function useMinutesMatrixWithClient(supabaseClient, session) {
         supabaseClient.removeChannel(channelRef.current)
       }
     }
-  }, [supabaseClient, fetchMatrix])
+  }, [supabaseClient, session, fetchMatrix])
 
   // Increment pee count for a given minute
   const logPee = useCallback(async (timeStr) => {
