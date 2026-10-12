@@ -294,3 +294,25 @@ CREATE POLICY "Adminler tüm değerlendirmeleri görebilir" ON public.evaluation
 
 CREATE POLICY "Adminler tüm değerlendirmeleri silebilir" ON public.evaluations
   FOR DELETE USING (public.is_admin());
+
+-- ==========================================================
+-- 10. AKTİVİTE GÜNLÜĞÜ (Profil sayfası günlük/haftalık istatistikleri)
+-- ==========================================================
+DROP TABLE IF EXISTS public.activity_log CASCADE;
+
+CREATE TABLE public.activity_log (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL DEFAULT auth.uid() REFERENCES public.profiles(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('pee', 'poop')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX activity_log_user_time ON public.activity_log (user_id, created_at);
+
+ALTER TABLE public.activity_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Kullanıcılar kendi aktivitelerini görebilir" ON public.activity_log
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Kullanıcılar kendi aktivitelerini ekleyebilir" ON public.activity_log
+  FOR INSERT WITH CHECK (auth.uid() = user_id);

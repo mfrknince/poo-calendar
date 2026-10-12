@@ -4,6 +4,13 @@ import { useState, useEffect, useCallback, useRef } from 'react'
  * Custom hook for managing the minutes matrix data with a dynamic Supabase client.
  * Fetches all 1440 minutes on mount and subscribes to realtime changes.
  */
+// Timestamped log for the profile page's daily/weekly stats; failure must not block the matrix update
+function logActivity(client, type) {
+  client.from('activity_log').insert({ type }).then(({ error }) => {
+    if (error) console.error('Activity log failed:', error)
+  })
+}
+
 export function useMinutesMatrixWithClient(supabaseClient, session) {
   // Store matrix as a Map for O(1) lookups: key = "HH:mm", value = { pee_count, poop_count }
   const [matrix, setMatrix] = useState(new Map())
@@ -101,6 +108,7 @@ export function useMinutesMatrixWithClient(supabaseClient, session) {
       }, { onConflict: 'id,user_id' })
 
     if (updateError) throw updateError
+    logActivity(supabaseClient, 'pee')
 
     // Optimistic update
     setMatrix((prev) => {
@@ -129,6 +137,7 @@ export function useMinutesMatrixWithClient(supabaseClient, session) {
       }, { onConflict: 'id,user_id' })
 
     if (updateError) throw updateError
+    logActivity(supabaseClient, 'poop')
 
     // Optimistic update
     setMatrix((prev) => {

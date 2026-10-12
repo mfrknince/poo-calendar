@@ -10,6 +10,7 @@ import { AuthScreen } from './components/AuthScreen'
 import { AdminPanel } from './components/AdminPanel'
 import { ToastContainer, useToasts } from './components/Toast'
 import { EvaluationPage } from './components/EvaluationPage'
+import { ProfilePage } from './components/ProfilePage'
 import { useCurrentTime } from './hooks/useCurrentTime'
 import { useMinutesMatrixWithClient } from './hooks/useMinutesMatrixWithClient'
 import { testConnection, saveConfig, createConfiguredClient } from './lib/supabaseFactory'
@@ -167,7 +168,17 @@ function App() {
             >
               📝 Değerlendirme
             </button>
-            
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`whitespace-nowrap px-4 sm:px-6 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'profile'
+                  ? 'bg-slate-700 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              👤 Profilim
+            </button>
+
             {userRole === 'admin' && (
               <button
                 onClick={() => setActiveTab('admin')}
@@ -208,6 +219,8 @@ function App() {
           </>
         ) : activeTab === 'evaluation' ? (
           <EvaluationPage supabaseClient={supabaseClient} session={session} />
+        ) : activeTab === 'profile' ? (
+          <ProfilePage supabaseClient={supabaseClient} session={session} userRole={userRole} stats={stats} />
         ) : activeTab === 'admin' && userRole === 'admin' ? (
           <AdminPanel supabaseClient={supabaseClient} />
         ) : null}
