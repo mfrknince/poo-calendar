@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
  * Determines the color of a heatmap cell based on its pee/poop counts.
  * Returns CSS color string and a category for the legend.
  */
-function getCellColor(peeCount, poopCount) {
+export function getCellColor(peeCount, poopCount) {
   const total = peeCount + poopCount
 
   if (total === 0) {
@@ -48,7 +48,7 @@ function getCellColor(peeCount, poopCount) {
  * GitHub-style 24-hour heatmap component.
  * Renders 24 rows (hours) × 60 columns (minutes) = 1440 cells.
  */
-export function Heatmap({ matrix, currentTimeStr }) {
+export function Heatmap({ matrix, selected, onSelect }) {
   const { t } = useTranslation()
   const [hoveredCell, setHoveredCell] = useState(null)
 
@@ -130,17 +130,18 @@ export function Heatmap({ matrix, currentTimeStr }) {
 
                 {/* Minute cells */}
                 {hourData.minutes.map((cell) => {
-                  const isCurrent = cell.id === currentTimeStr
+                  const isCurrent = cell.id === selected
                   return (
                     <div
                       key={cell.id}
-                      className="heatmap-cell shrink-0"
+                      className="heatmap-cell shrink-0 cursor-pointer"
                       style={{
                         backgroundColor: cell.color,
                         outline: isCurrent ? '2px solid rgba(255,255,255,0.8)' : 'none',
                         outlineOffset: isCurrent ? '-1px' : 0,
                         zIndex: isCurrent ? 10 : 'auto',
                       }}
+                      onClick={() => onSelect(cell.id)}
                       onMouseEnter={() => handleMouseEnter(cell)}
                       onMouseLeave={handleMouseLeave}
                       title={`${cell.id} — 💧${cell.pee_count} 💩${cell.poop_count}`}

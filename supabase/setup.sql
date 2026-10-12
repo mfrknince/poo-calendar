@@ -201,6 +201,19 @@ AS $$
   WHERE user_id = auth.uid();
 $$;
 
+-- Ana sayfa: seçili dakikada kim ne yapmış. profiles tablosu kapalı kalır,
+-- sadece o dakikaya kayıt girenlerin kullanıcı adı döner (giriş yapmış kullanıcılara)
+CREATE OR REPLACE FUNCTION public.minute_details(minute_id text)
+RETURNS TABLE (username text, pee int, poop int)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT p.username, m.pee_count, m.poop_count
+  FROM public.minutes_matrix m
+  JOIN public.profiles p ON p.id = m.user_id
+  WHERE m.id = minute_id AND auth.uid() IS NOT NULL
+  ORDER BY m.pee_count + m.poop_count DESC, p.username;
+$$;
+
 -- ==========================================================
 -- 4. REALTIME (canlı güncelleme)
 -- ==========================================================

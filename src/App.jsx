@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Header } from './components/Header'
 import { StatsBar } from './components/StatsBar'
-import { Heatmap } from './components/Heatmap'
+import { MatrixPanel } from './components/MatrixPanel'
 import { ActionPanel } from './components/ActionPanel'
 import { Footer } from './components/Footer'
 import { SetupScreen } from './components/SetupScreen'
@@ -214,7 +214,8 @@ function App() {
               onPee={handlePee}
               onPoop={handlePoop}
             />
-            <Heatmap
+            <MatrixPanel
+              supabaseClient={supabaseClient}
               matrix={matrix}
               currentTimeStr={timeStr}
             />

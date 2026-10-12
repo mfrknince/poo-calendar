@@ -130,6 +130,40 @@ function ReviewForm({ isNew, myReview, onSave, onDelete }) {
   )
 }
 
+/** One review row; used in the evaluation list, toilet modal and Profilim. */
+export function ReviewCard({ review, toiletName, isMine, onClick }) {
+  const Tag = onClick ? 'button' : 'div'
+  return (
+    <Tag
+      onClick={onClick}
+      className={`w-full text-left p-4 rounded-xl bg-slate-800/40 border border-slate-700/30 text-sm flex flex-col gap-2 ${
+        onClick ? 'hover:bg-slate-800/70 transition-colors' : ''
+      }`}
+    >
+      <div className="flex justify-between items-start gap-3">
+        <div className="min-w-0">
+          {toiletName && <div className="font-semibold text-white truncate">🚽 {toiletName}</div>}
+          <div className="text-xs">
+            {'⭐'.repeat(review.rating)}
+            <span className="text-slate-500"> {review.rating}/5{isMine && ' · Sen'}</span>
+          </div>
+        </div>
+        <span className="text-xs text-slate-500 shrink-0">
+          {new Date(review.created_at).toLocaleDateString('tr-TR')}
+        </span>
+      </div>
+      {review.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {review.tags.map((tag) => (
+            <span key={tag} className="px-2 py-0.5 rounded-full text-xs bg-slate-800 text-slate-300">{tag}</span>
+          ))}
+        </div>
+      )}
+      {review.comment && <div className="text-slate-200 whitespace-pre-wrap break-words">{review.comment}</div>}
+    </Tag>
+  )
+}
+
 function ToiletDetails({ toilet, userId }) {
   const avg = average(toilet.toilet_reviews)
   const tagCounts = TAGS.map((tag) => [tag, toilet.toilet_reviews.filter((r) => r.tags.includes(tag)).length])
@@ -152,41 +186,48 @@ function ToiletDetails({ toilet, userId }) {
           ))}
         </div>
       )}
-      {toilet.toilet_reviews.filter((r) => r.comment).map((r) => (
-        <div key={r.id} className="p-3 rounded-lg bg-slate-800/40 border border-slate-700/30 text-sm">
-          <div className="flex justify-between text-xs text-slate-500 mb-1">
-            <span>{'⭐'.repeat(r.rating)} {r.user_id === userId && '· Sen'}</span>
-            <span>{new Date(r.created_at).toLocaleDateString('tr-TR')}</span>
-          </div>
-          <p className="text-slate-200 whitespace-pre-wrap break-words">{r.comment}</p>
-        </div>
+      {toilet.toilet_reviews.map((r) => (
+        <ReviewCard key={r.id} review={r} isMine={r.user_id === userId} />
       ))}
     </div>
   )
 }
 
-export function EvaluationPage({ supabaseClient, session }) {
-  const [toilets, setToilets] = useState([])
-  const [selectedId, setSelectedId] = useState(null)
-  const [draft, setDraft] = useState(null) // { lat, lng } of a new toilet being added
-  const [error, setError] = useState(null)
+/** Native <dialog>: backdrop, Esc-to-close and focus trap for free. */
+function Modal({ open, onClose, title, children }) {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const dialog = ref.current
+    if (open && !dialog.open) dialog.showModal()
+    if (!open && dialog.open) dialog.close()
+  }, [open])
+
+  return (
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      onClick={(e) => e.target === ref.current && onClose()}
+      className="m-auto w-[calc(100%-2rem)] max-w-lg max-h-[90dvh] p-0 rounded-2xl bg-slate-900 border border-slate-700/50 text-white backdrop:bg-black/60"
+    >
+      {open && (
+        <div className="p-6 flex flex-col gap-5">
+          <div className="flex justify-between items-start gap-3">
+            <h3 className="text-lg font-bold text-white">{title}</h3>
+            <button onClick={onClose} className="text-slate-400 hover:text-white text-sm" aria-label="Kapat">✕</button>
+          </div>
+          {children}
+        </div>
+      )}
+    </dialog>
+  )
+}
+
+function ToiletMap({ toilets, draft, setDraft, setSelectedId }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const layerRef = useRef(null)
-  const userId = session.user.id
-
-  // ponytail: loads every toilet + review at once; add bbox filtering if it grows past a few thousand
-  const load = useCallback(async () => {
-    const { data, error } = await supabaseClient
-      .from('toilets')
-      .select('id, name, lat, lng, toilet_reviews(id, user_id, rating, comment, tags, created_at)')
-    if (error) setError(error.message)
-    else setToilets(data)
-  }, [supabaseClient])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  const [locateError, setLocateError] = useState(null)
 
   // Create the map once
   useEffect(() => {
@@ -202,7 +243,7 @@ export function EvaluationPage({ supabaseClient, session }) {
     layerRef.current = L.layerGroup().addTo(map)
     mapRef.current = map
     return () => map.remove()
-  }, [])
+  }, [setDraft, setSelectedId])
 
   // Redraw markers
   useEffect(() => {
@@ -211,7 +252,7 @@ export function EvaluationPage({ supabaseClient, session }) {
     toilets.forEach((t) => {
       const avg = average(t.toilet_reviews)
       L.circleMarker([t.lat, t.lng], {
-        radius: t.id === selectedId ? 12 : 9,
+        radius: 9,
         color: '#0f172a',
         weight: 2,
         fillColor: markerColor(avg),
@@ -229,16 +270,61 @@ export function EvaluationPage({ supabaseClient, session }) {
       L.circleMarker([draft.lat, draft.lng], { radius: 10, color: '#fff', weight: 2, fillColor: '#3b82f6', fillOpacity: 1 })
         .addTo(layer)
     }
-  }, [toilets, selectedId, draft])
+  }, [toilets, draft, setDraft, setSelectedId])
 
   const locateMe = () =>
     navigator.geolocation?.getCurrentPosition(
       (pos) => mapRef.current.setView([pos.coords.latitude, pos.coords.longitude], 16),
-      () => setError('Konum alınamadı.'),
+      () => setLocateError('Konum alınamadı.'),
     )
+
+  return (
+    // relative z-0 keeps Leaflet's high z-index panes below toasts
+    <div className="relative z-0 w-full flex flex-col gap-2">
+      <div ref={containerRef} className="h-[60dvh] min-h-80 w-full rounded-xl overflow-hidden border border-glass-border" />
+      <button
+        onClick={locateMe}
+        className="absolute top-3 right-3 z-[1000] px-3 py-2 rounded-lg text-sm bg-slate-900/90 hover:bg-slate-800 text-white shadow-lg"
+      >
+        📍 Konumum
+      </button>
+      {locateError && <p className="text-red-400 text-sm">{locateError}</p>}
+    </div>
+  )
+}
+
+export function EvaluationPage({ supabaseClient, session }) {
+  const [view, setView] = useState('list')
+  const [toilets, setToilets] = useState([])
+  const [selectedId, setSelectedId] = useState(null)
+  const [draft, setDraft] = useState(null) // { lat, lng } of a new toilet being added
+  const [error, setError] = useState(null)
+  const userId = session.user.id
+
+  // ponytail: loads every toilet + review at once; add bbox filtering if it grows past a few thousand
+  const load = useCallback(async () => {
+    const { data, error } = await supabaseClient
+      .from('toilets')
+      .select('id, name, lat, lng, toilet_reviews(id, user_id, rating, comment, tags, created_at)')
+    if (error) setError(error.message)
+    else setToilets(data)
+  }, [supabaseClient])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const reviews = toilets
+    .flatMap((t) => t.toilet_reviews.map((r) => ({ ...r, toilet: t })))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
 
   const selected = toilets.find((t) => t.id === selectedId)
   const myReview = selected?.toilet_reviews.find((r) => r.user_id === userId)
+
+  const closeModal = () => {
+    setDraft(null)
+    setSelectedId(null)
+  }
 
   const handleSave = async ({ name, rating, tags, comment }) => {
     let toiletId = selectedId
@@ -256,8 +342,7 @@ export function EvaluationPage({ supabaseClient, session }) {
       .upsert({ toilet_id: toiletId, user_id: userId, rating, tags, comment: comment || null }, { onConflict: 'toilet_id,user_id' })
     if (error) throw error
     await load()
-    setDraft(null)
-    setSelectedId(toiletId)
+    closeModal()
   }
 
   const handleDelete = async () => {
@@ -266,54 +351,71 @@ export function EvaluationPage({ supabaseClient, session }) {
     else load()
   }
 
+  const tabClass = (v) =>
+    `px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+      view === v ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
+    }`
+
   return (
     <div className="w-full px-4 sm:px-6 flex-1 flex flex-col items-center gap-4 pb-8">
       <div className="w-full max-w-2xl flex flex-col gap-4 animate-fade-in-up">
-        <div className="glass-card p-5 flex items-center justify-between gap-3">
+        <div className="glass-card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold text-white">🚽 Tuvalet Değerlendirme</h2>
-            <p className="text-slate-400 text-sm mt-0.5">Haritada bir tuvalete tıkla ya da boş bir yere tıklayıp yeni ekle</p>
+            <p className="text-slate-400 text-sm mt-0.5">
+              {view === 'list' ? 'Ekibin tüm değerlendirmeleri' : 'Yeni eklemek için haritada bir yere tıkla'}
+            </p>
           </div>
-          <button
-            onClick={locateMe}
-            className="shrink-0 px-3 py-2 rounded-lg text-sm bg-slate-800 hover:bg-slate-700 text-white transition-colors"
-          >
-            📍 Konumum
-          </button>
+          <div className="flex gap-1 p-1 bg-slate-800/50 rounded-xl border border-slate-700/50">
+            <button onClick={() => setView('list')} className={tabClass('list')}>
+              📋 Liste {reviews.length > 0 && `(${reviews.length})`}
+            </button>
+            <button onClick={() => setView('map')} className={tabClass('map')}>🗺️ Harita</button>
+          </div>
         </div>
-
-        {/* relative z-0 keeps Leaflet's high z-index panes below toasts */}
-        <div ref={containerRef} className="relative z-0 h-80 sm:h-96 w-full rounded-xl overflow-hidden border border-glass-border" />
 
         {error && (
           <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
         )}
 
-        {(selected || draft) && (
-          <div className="glass-card p-6 flex flex-col gap-5">
-            <div className="flex justify-between items-start gap-3">
-              <h3 className="text-lg font-bold text-white">{draft ? '✨ Yeni Tuvalet' : selected.name}</h3>
-              <button
-                onClick={() => { setDraft(null); setSelectedId(null) }}
-                className="text-slate-400 hover:text-white text-sm"
-                aria-label="Kapat"
-              >
-                ✕
-              </button>
-            </div>
-            {selected && <ToiletDetails toilet={selected} userId={userId} />}
-            <div className="border-t border-slate-700/50 pt-5">
-              <ReviewForm
-                key={draft ? `${draft.lat},${draft.lng}` : `${selectedId}-${myReview?.id}`}
-                isNew={!!draft}
-                myReview={myReview}
-                onSave={handleSave}
-                onDelete={handleDelete}
+        {view === 'list' ? (
+          <div className="flex flex-col gap-3">
+            {reviews.length === 0 && (
+              <div className="glass-card p-8 text-center text-slate-400 text-sm">
+                Henüz değerlendirme yok.{' '}
+                <button onClick={() => setView('map')} className="text-accent-400 hover:text-accent-300">
+                  Haritadan ilkini ekle →
+                </button>
+              </div>
+            )}
+            {reviews.map((r) => (
+              <ReviewCard
+                key={r.id}
+                review={r}
+                toiletName={r.toilet.name}
+                isMine={r.user_id === userId}
+                onClick={() => setSelectedId(r.toilet.id)}
               />
-            </div>
+            ))}
           </div>
+        ) : (
+          <ToiletMap toilets={toilets} draft={draft} setDraft={setDraft} setSelectedId={setSelectedId} />
         )}
       </div>
+
+      <Modal open={!!(selected || draft)} onClose={closeModal} title={draft ? '✨ Yeni Değerlendirme' : `🚽 ${selected?.name}`}>
+        {selected && <ToiletDetails toilet={selected} userId={userId} />}
+        <div className={selected ? 'border-t border-slate-700/50 pt-5' : ''}>
+          {selected && <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Senin değerlendirmen</p>}
+          <ReviewForm
+            key={draft ? `${draft.lat},${draft.lng}` : `${selectedId}-${myReview?.id}`}
+            isNew={!!draft}
+            myReview={myReview}
+            onSave={handleSave}
+            onDelete={handleDelete}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

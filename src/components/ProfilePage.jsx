@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { ReviewCard } from './EvaluationPage'
 
 const inputClass = 'w-full bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-2.5 text-white'
 
@@ -87,6 +88,7 @@ export function ProfilePage({ supabaseClient, session, userRole }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [totals, setTotals] = useState({ pee: 0, poop: 0 })
+  const [myReviews, setMyReviews] = useState([])
   const user = session.user
   const username = user.user_metadata?.username || user.email.split('@')[0]
 
@@ -109,6 +111,15 @@ export function ProfilePage({ supabaseClient, session, userRole }) {
       if (error) console.error('Totals fetch failed:', error)
       else setTotals(data)
     })
+    supabaseClient
+      .from('toilet_reviews')
+      .select('id, user_id, rating, comment, tags, created_at, toilets(name)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) console.error('Reviews fetch failed:', error)
+        else setMyReviews(data)
+      })
   }, [supabaseClient, user.id])
 
   const days = groupByDay(rows)
@@ -157,6 +168,19 @@ export function ProfilePage({ supabaseClient, session, userRole }) {
                     {d.pee}💧 {d.poop}💩
                   </span>
                 </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="glass-card p-6">
+          <h3 className="text-lg font-bold text-white mb-4">🚽 Değerlendirmelerim</h3>
+          {myReviews.length === 0 ? (
+            <p className="text-slate-400 text-sm">Henüz tuvalet değerlendirmen yok.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {myReviews.map((r) => (
+                <ReviewCard key={r.id} review={r} toiletName={r.toilets?.name} />
               ))}
             </div>
           )}

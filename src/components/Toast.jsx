@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 /**
  * Toast notification system.
@@ -21,7 +21,7 @@ function Toast({ toast, onDismiss }) {
     const timer = setTimeout(() => {
       setExiting(true)
       setTimeout(() => onDismiss(toast.id), 300)
-    }, 3000)
+    }, 5000)
     return () => clearTimeout(timer)
   }, [toast.id, onDismiss])
 
@@ -66,15 +66,17 @@ let toastIdCounter = 0
 export function useToasts() {
   const [toasts, setToasts] = useState([])
 
-  const addToast = (message, type = 'info') => {
+  // Stable callbacks: App re-renders every second (clock), and a new onDismiss
+  // identity would restart each toast's auto-hide timer forever
+  const addToast = useCallback((message, type = 'info') => {
     const id = ++toastIdCounter
     // Only keep one toast at a time
     setToasts([{ id, message, type }])
-  }
+  }, [])
 
-  const dismissToast = (id) => {
+  const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
-  }
+  }, [])
 
   return { toasts, addToast, dismissToast }
 }
